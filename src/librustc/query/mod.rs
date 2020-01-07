@@ -1,9 +1,9 @@
 use crate::dep_graph::{DepKind, DepNode, RecoverKey, SerializedDepNodeIndex};
 use crate::mir;
-use crate::mir::interpret::GlobalId;
+use crate::mir::interpret::ConstEvalInput;
 use crate::traits;
 use crate::traits::query::{
-    CanonicalPredicateGoal, CanonicalProjectionGoal, CanonicalTyGoal,
+    CanonicalPredicateGoal, CanonicalProjectionGoal, CanonicalTraitGoal, CanonicalTyGoal,
     CanonicalTypeOpAscribeUserTypeGoal, CanonicalTypeOpEqGoal, CanonicalTypeOpNormalizeGoal,
     CanonicalTypeOpProvePredicateGoal, CanonicalTypeOpSubtypeGoal,
 };
@@ -467,12 +467,12 @@ rustc_queries! {
         /// during validation. Please add a comment to every use site explaining why using
         /// `const_eval_validated` isn't sufficient. The returned constant also isn't in a suitable
         /// form to be used outside of const eval.
-        query const_eval_raw(key: ty::ParamEnvAnd<'tcx, GlobalId<'tcx>>)
+        query const_eval_raw(key: ConstEvalInput<'tcx>)
             -> ConstEvalRawResult<'tcx> {
             no_force
             desc { |tcx|
                 "const-evaluating `{}`",
-                tcx.def_path_str(key.value.instance.def.def_id())
+                tcx.def_path_str(key.def_id())
             }
         }
 
@@ -484,12 +484,12 @@ rustc_queries! {
         ///
         /// **Do not use this** directly, use one of the following wrappers: `tcx.const_eval_poly`,
         /// `tcx.const_eval_resolve`, `tcx.const_eval_instance`, or `tcx.const_eval_promoted`.
-        query const_eval_validated(key: ty::ParamEnvAnd<'tcx, GlobalId<'tcx>>)
+        query const_eval_validated(key: ConstEvalInput<'tcx>)
             -> ConstEvalResult<'tcx> {
             no_force
             desc { |tcx|
                 "const-evaluating + checking `{}`",
-                tcx.def_path_str(key.value.instance.def.def_id())
+                tcx.def_path_str(key.def_id())
             }
             cache_on_disk_if(_, opt_result) {
                 // Only store results without errors
@@ -592,17 +592,15 @@ rustc_queries! {
             no_force
             desc { |tcx| "finding all methods for trait {}", tcx.def_path_str(key.def_id()) }
         }
-    }
 
-    Codegen {
-        query codegen_fulfill_obligation(
-            key: (ty::ParamEnv<'tcx>, ty::PolyTraitRef<'tcx>)
-        ) -> Vtable<'tcx, ()> {
+        /// Do not call this query directly: invoke `infcx.resolve_vtable()` instead.
+        query resolve_vtable(
+            goal: CanonicalTraitGoal<'tcx>
+        ) -> Result<&'tcx Canonical<'tcx, canonical::QueryResponse<'tcx, Vtable<'tcx, ()>>>, NoSolution> {
             no_force
-            cache_on_disk_if { true }
             desc { |tcx|
-                "checking if `{}` fulfills its obligations",
-                tcx.def_path_str(key.1.def_id())
+                "resolving vtable for `{}`",
+                tcx.def_path_str(goal.value.value.def_id())
             }
         }
     }

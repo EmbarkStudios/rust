@@ -1,5 +1,7 @@
 use super::{ConstEvalResult, ErrorHandled, GlobalId};
 
+use crate::infer::canonical::{Canonical, OriginalQueryValues};
+use crate::infer::InferCtxt;
 use crate::mir;
 use crate::ty::subst::{InternalSubsts, SubstsRef};
 use crate::ty::{self, TyCtxt};
@@ -19,7 +21,7 @@ impl<'tcx> TyCtxt<'tcx> {
         let instance = ty::Instance::new(def_id, substs);
         let cid = GlobalId { instance, promoted: None };
         let param_env = self.param_env(def_id).with_reveal_all();
-        self.const_eval_validated(param_env.and(cid))
+        self.const_eval_validated(Canonical::empty(param_env.and(cid)))
     }
 
     /// Resolves and evaluates a constant.
@@ -38,14 +40,11 @@ impl<'tcx> TyCtxt<'tcx> {
         substs: SubstsRef<'tcx>,
         span: Option<Span>,
     ) -> ConstEvalResult<'tcx> {
-        let instance = ty::Instance::resolve(self, param_env, def_id, substs);
-        if let Some(instance) = instance {
-            self.const_eval_instance(param_env, instance, span)
-        } else {
-            Err(ErrorHandled::TooGeneric)
-        }
+        self.infer_ctxt()
+            .enter(|ref infcx| infcx.const_eval_resolve(param_env, def_id, substs, span))
     }
 
+    /// Evaluates the constant represented by the instance.
     pub fn const_eval_instance(
         self,
         param_env: ty::ParamEnv<'tcx>,
@@ -53,10 +52,11 @@ impl<'tcx> TyCtxt<'tcx> {
         span: Option<Span>,
     ) -> ConstEvalResult<'tcx> {
         let cid = GlobalId { instance, promoted: None };
+        let canonical = Canonical::empty(param_env.and(cid));
         if let Some(span) = span {
-            self.at(span).const_eval_validated(param_env.and(cid))
+            self.at(span).const_eval_validated(canonical)
         } else {
-            self.const_eval_validated(param_env.and(cid))
+            self.const_eval_validated(canonical)
         }
     }
 
@@ -68,6 +68,55 @@ impl<'tcx> TyCtxt<'tcx> {
     ) -> ConstEvalResult<'tcx> {
         let cid = GlobalId { instance, promoted: Some(promoted) };
         let param_env = ty::ParamEnv::reveal_all();
-        self.const_eval_validated(param_env.and(cid))
+        self.const_eval_validated(Canonical::empty(param_env.and(cid)))
+    }
+}
+
+impl<'a, 'tcx> InferCtxt<'a, 'tcx> {
+    /// Evaluates the constant represented by the instance.
+    ///
+    /// The given `ParamEnv` and `Instance` can contain inference variables from this inference
+    /// context.
+    pub fn const_eval_instance(
+        &self,
+        param_env: ty::ParamEnv<'tcx>,
+        instance: ty::Instance<'tcx>,
+        span: Option<Span>,
+    ) -> ConstEvalResult<'tcx> {
+        let cid = GlobalId { instance, promoted: None };
+        let mut orig_values = OriginalQueryValues::default();
+        let canonical = self.canonicalize_query(&param_env.and(cid), &mut orig_values);
+        if let Some(span) = span {
+            self.tcx.at(span).const_eval_validated(canonical)
+        } else {
+            self.tcx.const_eval_validated(canonical)
+        }
+    }
+
+    /// Resolves and evaluates a constant.
+    ///
+    /// The constant can be located on a trait like `<A as B>::C`, in which case the given
+    /// substitutions and environment are used to resolve the constant. Alternatively if the
+    /// constant has generic parameters in scope the substitutions are used to evaluate the value of
+    /// the constant. For example in `fn foo<T>() { let _ = [0; bar::<T>()]; }` the repeat count
+    /// constant `bar::<T>()` requires a substitution for `T`, if the substitution for `T` is still
+    /// too generic for the constant to be evaluated then `Err(ErrorHandled::TooGeneric)` is
+    /// returned.
+    ///
+    /// The given `ParamEnv` and `substs` can contain inference variables from this inference
+    /// context.
+    pub fn const_eval_resolve(
+        &self,
+        param_env: ty::ParamEnv<'tcx>,
+        def_id: DefId,
+        substs: SubstsRef<'tcx>,
+        span: Option<Span>,
+    ) -> ConstEvalResult<'tcx> {
+        let instance = ty::Instance::resolve(self, param_env, def_id, substs);
+        if let Some(instance) = instance {
+            self.const_eval_instance(param_env, instance, span)
+        } else {
+            Err(ErrorHandled::TooGeneric)
+        }
     }
 }

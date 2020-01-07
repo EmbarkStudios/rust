@@ -13,8 +13,7 @@ use crate::middle::region;
 use crate::middle::resolve_lifetime::{ObjectLifetimeDefault, Region, ResolveLifetimes};
 use crate::middle::stability::{self, DeprecationEntry};
 use crate::mir;
-use crate::mir::interpret::GlobalId;
-use crate::mir::interpret::{ConstEvalRawResult, ConstEvalResult};
+use crate::mir::interpret::{ConstEvalInput, ConstEvalRawResult, ConstEvalResult};
 use crate::mir::mono::CodegenUnit;
 use crate::session::config::{EntryFnType, OptLevel, OutputFilenames, SymbolManglingVersion};
 use crate::session::CrateDisambiguator;
@@ -23,7 +22,7 @@ use crate::traits::query::method_autoderef::MethodAutoderefStepsResult;
 use crate::traits::query::normalize::NormalizationResult;
 use crate::traits::query::outlives_bounds::OutlivesBound;
 use crate::traits::query::{
-    CanonicalPredicateGoal, CanonicalProjectionGoal, CanonicalTyGoal,
+    CanonicalPredicateGoal, CanonicalProjectionGoal, CanonicalTraitGoal, CanonicalTyGoal,
     CanonicalTypeOpAscribeUserTypeGoal, CanonicalTypeOpEqGoal, CanonicalTypeOpNormalizeGoal,
     CanonicalTypeOpProvePredicateGoal, CanonicalTypeOpSubtypeGoal, NoSolution,
 };
